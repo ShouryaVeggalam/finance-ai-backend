@@ -11,31 +11,20 @@ from app.core.error_handlers import celestra_exception_handler
 from app.core.exceptions import CelestraError
 from app.core.logging import setup_logging
 from app.database.base import Base
+from app.database.session import engine_connect_args, normalize_async_url
 from app.models import *  # noqa: F401, F403
-
-
-def _database_url() -> str:
-    url = settings.DATABASE_URL
-    if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql+asyncpg://", 1)
-    if url.startswith("postgresql://") and "+asyncpg" not in url:
-        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    return url
-
-
-def _engine_kwargs(url: str) -> dict:
-    kwargs: dict = {"pool_pre_ping": True}
-    if "render.com" in url:
-        kwargs["connect_args"] = {"ssl": True}
-    return kwargs
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     if settings.APP_ENV == "production":
-        url = _database_url()
-        engine = create_async_engine(url, **_engine_kwargs(url))
+        url = normalize_async_url(settings.DATABASE_URL)
+        engine = create_async_engine(
+            url,
+            pool_pre_ping=True,
+            connect_args=engine_connect_args(url),
+        )
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()

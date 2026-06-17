@@ -109,14 +109,13 @@ class Settings(BaseSettings):
                 async_url = discovered
                 print(f"[celestra] Using database URL from env var: {env_key}")
 
-        if async_url and not sync_url:
-            sync_url = _to_sync_pg_url(async_url)
-        elif sync_url and not async_url:
-            async_url = _to_asyncpg_url(sync_url)
-        elif async_url:
+        # Always normalize — Render injects postgresql:// without +asyncpg
+        if async_url:
             async_url = _to_asyncpg_url(async_url)
-            if not sync_url:
-                sync_url = _to_sync_pg_url(async_url)
+        if sync_url:
+            sync_url = _to_sync_pg_url(sync_url)
+        elif async_url:
+            sync_url = _to_sync_pg_url(async_url)
 
         if not async_url:
             present = [k for k in ("APP_ENV", "FRONTEND_URL", "SECRET_KEY", *_DB_ENV_KEYS) if os.getenv(k)]
