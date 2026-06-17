@@ -1,5 +1,31 @@
+import os
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Env var names Render / hosting platforms may use for Postgres
+_DB_ENV_KEYS = (
+    "DATABASE_URL",
+    "DATABASE_URL_SYNC",
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+    "POSTGRES_PRISMA_URL",
+    "PGDATABASE_URL",
+    "RENDER_DATABASE_URL",
+    "DB_URL",
+    "DATABASE_CONNECTION_STRING",
+    "INTERNAL_DATABASE_URL",
+    "EXTERNAL_DATABASE_URL",
+)
+
+
+def _first_db_url() -> tuple[str, str]:
+    """Return (async_url_source, env_key_used)."""
+    for key in _DB_ENV_KEYS:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value, key
+    return "", ""
 
 
 def _to_asyncpg_url(url: str) -> str:
@@ -27,7 +53,6 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # Render injects DATABASE_URL when you link Postgres — only one is required
     DATABASE_URL: str = ""
     DATABASE_URL_SYNC: str = ""
     REDIS_URL: str = ""
@@ -57,6 +82,13 @@ class Settings(BaseSettings):
         async_url = self.DATABASE_URL.strip()
         sync_url = self.DATABASE_URL_SYNC.strip()
 
+        if not async_url and not sync_url:
+            discovered, env_key = _first_db_url()
+            if discovered:
+                async_url = discovered
+                # Log which env var was used (visible in Render logs)
+                print(f"[celestra] Using database URL from env var: {env_key}")
+
         if async_url and not sync_url:
             sync_url = _to_sync_pg_url(async_url)
         elif sync_url and not async_url:
@@ -67,17 +99,19 @@ class Settings(BaseSettings):
                 sync_url = _to_sync_pg_url(async_url)
 
         if not async_url:
+            present = [k for k in ("APP_ENV", "FRONTEND_URL", "SECRET_KEY", *_DB_ENV_KEYS) if os.getenv(k)]
             raise ValueError(
-                "Database not configured. On Render: open your Web Service → "
-                "Environment → link your existing Postgres (adds DATABASE_URL), "
-                "or set DATABASE_URL / DATABASE_URL_SYNC manually."
+                "DATABASE_URL is not set on this Render service. "
+                "Fix: Web Service → Environment → Add Environment Variable → "
+                "'Add from Render Postgres' (pick your existing DB), OR paste "
+                "Internal Database URL as DATABASE_URL. "
+                f"Env vars currently present: {', '.join(present) or 'none'}"
             )
 
         if not self.SECRET_KEY:
             if self.APP_ENV == "production":
                 raise ValueError(
-                    "SECRET_KEY is required in production. "
-                    "Add it under Environment in Render (any long random string)."
+                    "SECRET_KEY is required. Add any long random string under Environment in Render."
                 )
             object.__setattr__(self, "SECRET_KEY", "dev-only-insecure-secret-key")
 
