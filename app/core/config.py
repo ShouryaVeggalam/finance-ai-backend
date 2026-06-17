@@ -1,7 +1,7 @@
 import json
 import os
 
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_CORS_ORIGINS = [
@@ -11,7 +11,6 @@ _DEFAULT_CORS_ORIGINS = [
     "https://finance-ai-frontend.vercel.app",
 ]
 
-# Env var names Render / hosting platforms may use for Postgres
 _DB_ENV_KEYS = (
     "DATABASE_URL",
     "DATABASE_URL_SYNC",
@@ -27,8 +26,21 @@ _DB_ENV_KEYS = (
 )
 
 
+def _parse_cors_origins(raw: str) -> list[str]:
+    stripped = raw.strip()
+    if not stripped:
+        return _DEFAULT_CORS_ORIGINS.copy()
+    if stripped.startswith("["):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            pass
+    return [part.strip() for part in stripped.split(",") if part.strip()]
+
+
 def _first_db_url() -> tuple[str, str]:
-    """Return (async_url_source, env_key_used)."""
     for key in _DB_ENV_KEYS:
         value = os.getenv(key, "").strip()
         if value:
@@ -82,29 +94,9 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "celestra-finance"
     S3_REGION: str = "us-east-1"
 
-    CORS_ORIGINS: list[str] = _DEFAULT_CORS_ORIGINS.copy()
+    # Plain string — avoids pydantic-settings JSON-parsing list env vars on Render
+    CORS_ORIGINS: str = ""
     FRONTEND_URL: str = ""
-
-    @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, value: object) -> list[str]:
-        if value is None:
-            return _DEFAULT_CORS_ORIGINS.copy()
-        if isinstance(value, list):
-            return value
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return _DEFAULT_CORS_ORIGINS.copy()
-            if stripped.startswith("["):
-                try:
-                    parsed = json.loads(stripped)
-                    if isinstance(parsed, list):
-                        return [str(item).strip() for item in parsed if str(item).strip()]
-                except json.JSONDecodeError:
-                    pass
-            return [part.strip() for part in stripped.split(",") if part.strip()]
-        return _DEFAULT_CORS_ORIGINS.copy()
 
     @model_validator(mode="after")
     def resolve_urls(self) -> "Settings":
@@ -115,7 +107,6 @@ class Settings(BaseSettings):
             discovered, env_key = _first_db_url()
             if discovered:
                 async_url = discovered
-                # Log which env var was used (visible in Render logs)
                 print(f"[celestra] Using database URL from env var: {env_key}")
 
         if async_url and not sync_url:
@@ -131,17 +122,12 @@ class Settings(BaseSettings):
             present = [k for k in ("APP_ENV", "FRONTEND_URL", "SECRET_KEY", *_DB_ENV_KEYS) if os.getenv(k)]
             raise ValueError(
                 "DATABASE_URL is not set on this Render service. "
-                "Fix: Web Service → Environment → Add Environment Variable → "
-                "'Add from Render Postgres' (pick your existing DB), OR paste "
-                "Internal Database URL as DATABASE_URL. "
                 f"Env vars currently present: {', '.join(present) or 'none'}"
             )
 
         if not self.SECRET_KEY:
             if self.APP_ENV == "production":
-                raise ValueError(
-                    "SECRET_KEY is required. Add any long random string under Environment in Render."
-                )
+                raise ValueError("SECRET_KEY is required in production.")
             object.__setattr__(self, "SECRET_KEY", "dev-only-insecure-secret-key")
 
         object.__setattr__(self, "DATABASE_URL", async_url)
@@ -158,9 +144,11 @@ class Settings(BaseSettings):
 
     @property
     def all_cors_origins(self) -> list[str]:
-        origins = list(self.CORS_ORIGINS)
-        if self.FRONTEND_URL and self.FRONTEND_URL.rstrip("/") not in origins:
-            origins.append(self.FRONTEND_URL.rstrip("/"))
+        origins = _parse_cors_origins(self.CORS_ORIGINS)
+        if self.FRONTEND_URL:
+            origin = self.FRONTEND_URL.rstrip("/")
+            if origin not in origins:
+                origins.append(origin)
         return origins
 
 

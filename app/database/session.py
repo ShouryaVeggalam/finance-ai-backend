@@ -13,12 +13,20 @@ def _normalize_async_url(url: str) -> str:
     return url
 
 
+def _engine_connect_args(url: str) -> dict:
+    if "render.com" in url:
+        return {"ssl": True}
+    return {}
+
+
+_url = _normalize_async_url(settings.DATABASE_URL)
 engine = create_async_engine(
-    _normalize_async_url(settings.DATABASE_URL),
+    _url,
     echo=settings.DEBUG,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    connect_args=_engine_connect_args(_url),
 )
 
 async_session_factory = async_sessionmaker(

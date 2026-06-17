@@ -23,11 +23,19 @@ def _database_url() -> str:
     return url
 
 
+def _engine_kwargs(url: str) -> dict:
+    kwargs: dict = {"pool_pre_ping": True}
+    if "render.com" in url:
+        kwargs["connect_args"] = {"ssl": True}
+    return kwargs
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     if settings.APP_ENV == "production":
-        engine = create_async_engine(_database_url())
+        url = _database_url()
+        engine = create_async_engine(url, **_engine_kwargs(url))
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
