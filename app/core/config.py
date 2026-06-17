@@ -1,7 +1,15 @@
+import json
 import os
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://finance-ai--dun.vercel.app",
+    "https://finance-ai-frontend.vercel.app",
+]
 
 # Env var names Render / hosting platforms may use for Postgres
 _DB_ENV_KEYS = (
@@ -44,7 +52,12 @@ def _to_sync_pg_url(url: str) -> str:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_ignore_empty=True,
+    )
 
     APP_NAME: str = "Celestra Finance AI"
     APP_ENV: str = "development"
@@ -69,13 +82,29 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "celestra-finance"
     S3_REGION: str = "us-east-1"
 
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://finance-ai--dun.vercel.app",
-        "https://finance-ai-frontend.vercel.app",
-    ]
+    CORS_ORIGINS: list[str] = _DEFAULT_CORS_ORIGINS.copy()
     FRONTEND_URL: str = ""
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: object) -> list[str]:
+        if value is None:
+            return _DEFAULT_CORS_ORIGINS.copy()
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return _DEFAULT_CORS_ORIGINS.copy()
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except json.JSONDecodeError:
+                    pass
+            return [part.strip() for part in stripped.split(",") if part.strip()]
+        return _DEFAULT_CORS_ORIGINS.copy()
 
     @model_validator(mode="after")
     def resolve_urls(self) -> "Settings":
