@@ -1,0 +1,14 @@
+[project]
+name = "celestra-finance-ai"
+version = "1.0.0"
+description = "Celestra Finance AI - Your AI Finance Department"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
