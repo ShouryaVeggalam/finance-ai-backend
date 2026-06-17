@@ -9,18 +9,22 @@
 1. Render → **New** → **Web Service**
 2. Connect repo: `ShouryaVeggalam/finance-ai-backend`
 3. Runtime: **Docker**
-4. Add environment variables (from your **existing** Render Postgres):
+### Connect your existing Postgres (required)
 
-| Variable | Example |
-|----------|---------|
-| `DATABASE_URL` | `postgresql+asyncpg://user:pass@host/dbname` |
-| `DATABASE_URL_SYNC` | `postgresql://user:pass@host/dbname` |
+In your **Web Service** → **Environment**:
+
+**Easiest:** Click **Add Environment Variable** → **Add from database** → select your existing Postgres.  
+Render injects `DATABASE_URL` automatically — you do **not** need `DATABASE_URL_SYNC` separately.
+
+**Or set manually:**
+
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | `postgresql://user:pass@host/dbname` (from Postgres → Connect) |
 | `SECRET_KEY` | any long random string |
 | `FRONTEND_URL` | `https://finance-ai--dun.vercel.app` |
-| `REDIS_URL` | *(optional)* your existing Redis URL |
-| `OPENAI_API_KEY` | *(optional)* for AI CFO |
 
-**Tip:** In Render, open your existing Postgres → **Connect** → copy **External Database URL**. Use that for `DATABASE_URL_SYNC`, and for `DATABASE_URL` change the scheme to `postgresql+asyncpg://` (same host/user/pass/db).
+Also required: `SECRET_KEY` (random string). Without it the deploy will fail in production.
 
 5. Deploy. On first boot the API auto-creates tables (`APP_ENV=production`).
 
